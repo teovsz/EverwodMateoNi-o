@@ -8,7 +8,15 @@ from faq_common import DATA_DIR, get_db_connection, json_text, normalize_text, s
 from faq_models import IngestRequest, IngestResponse
 
 # Aplicacion FastAPI del servicio de ingesta.
+from fastapi.middleware.cors import CORSMiddleware
+
 app = FastAPI(title="Everwod FAQ Ingestion Service")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Archivo intermedio que usaran los servicios siguientes.
 OUTPUT_PATH = DATA_DIR / "conversations.jsonl"

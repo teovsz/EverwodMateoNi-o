@@ -6,7 +6,15 @@ from faq_common import DATA_DIR, load_json, save_json
 from faq_models import ValidationRequest, ValidationResponse
 
 # Aplicacion FastAPI del servicio de validacion humana.
-app = FastAPI(title="Everwod FAQ Validation Service")
+from fastapi.middleware.cors import CORSMiddleware
+
+app = FastAPI(title="Everwod FAQ Ingestion Service")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Archivos que contienen las sugerencias generadas y sus revisiones.
 SUGGESTIONS_PATH = DATA_DIR / "faq_suggestions.json"

@@ -1,0 +1,874 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Everwod · Panel de FAQs Inteligentes</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0a0f;
+    --surface: #13131a;
+    --surface2: #1c1c27;
+    --border: #2a2a3a;
+    --accent: #7c6af7;
+    --accent2: #f76ab4;
+    --accent3: #6af7c8;
+    --text: #e8e8f0;
+    --muted: #6b6b80;
+    --approved: #4ade80;
+    --rejected: #f87171;
+    --pending: #facc15;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Fondo animado */
+  body::before {
+    content: '';
+    position: fixed;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: radial-gradient(ellipse at 20% 20%, rgba(124,106,247,0.08) 0%, transparent 50%),
+                radial-gradient(ellipse at 80% 80%, rgba(247,106,180,0.06) 0%, transparent 50%),
+                radial-gradient(ellipse at 50% 50%, rgba(106,247,200,0.04) 0%, transparent 60%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .wrapper {
+    position: relative;
+    z-index: 1;
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 0 24px 60px;
+  }
+
+  /* Header */
+  header {
+    padding: 40px 0 32px;
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 40px;
+  }
+
+  .logo-area h1 {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: 28px;
+    letter-spacing: -0.5px;
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .logo-area p {
+    font-size: 13px;
+    color: var(--muted);
+    margin-top: 4px;
+    font-weight: 300;
+  }
+
+  .status-bar {
+    display: flex;
+    gap: 12px;
+  }
+
+  .status-pill {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 6px 12px;
+    font-size: 12px;
+    color: var(--muted);
+    transition: all 0.3s;
+  }
+
+  .status-pill.active {
+    border-color: var(--accent3);
+    color: var(--accent3);
+  }
+
+  .status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--muted);
+  }
+
+  .status-pill.active .status-dot {
+    background: var(--accent3);
+    box-shadow: 0 0 6px var(--accent3);
+    animation: pulse 2s infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  /* Stats */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-bottom: 40px;
+  }
+
+  .stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 20px;
+    transition: border-color 0.3s, transform 0.2s;
+  }
+
+  .stat-card:hover {
+    border-color: var(--accent);
+    transform: translateY(-2px);
+  }
+
+  .stat-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+
+  .stat-value {
+    font-family: 'Syne', sans-serif;
+    font-size: 32px;
+    font-weight: 700;
+    color: var(--text);
+  }
+
+  .stat-value span {
+    font-size: 14px;
+    font-weight: 400;
+    color: var(--muted);
+    margin-left: 4px;
+  }
+
+  /* Actions */
+  .actions-row {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 40px;
+    flex-wrap: wrap;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 24px;
+    border-radius: 12px;
+    border: none;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .btn::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: white;
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+
+  .btn:hover::after { opacity: 0.08; }
+  .btn:active { transform: scale(0.97); }
+
+  .btn-primary {
+    background: linear-gradient(135deg, var(--accent), #5a4fcf);
+    color: white;
+    box-shadow: 0 4px 20px rgba(124,106,247,0.3);
+  }
+
+  .btn-secondary {
+    background: var(--surface2);
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+
+  .btn-accent {
+    background: linear-gradient(135deg, var(--accent2), #c44d8e);
+    color: white;
+    box-shadow: 0 4px 20px rgba(247,106,180,0.25);
+  }
+
+  .btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  /* Spinner */
+  .spinner {
+    width: 14px;
+    height: 14px;
+    border: 2px solid rgba(255,255,255,0.3);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    display: none;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Section */
+  .section-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 18px;
+    font-weight: 700;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .section-title .badge {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 2px 10px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--muted);
+    font-family: 'DM Sans', sans-serif;
+  }
+
+  /* FAQ Cards */
+  .faq-list {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    margin-bottom: 40px;
+  }
+
+  .faq-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 24px;
+    transition: all 0.3s;
+    animation: fadeIn 0.4s ease forwards;
+    opacity: 0;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .faq-card:hover {
+    border-color: rgba(124,106,247,0.4);
+    box-shadow: 0 0 30px rgba(124,106,247,0.08);
+  }
+
+  .faq-card.approved {
+    border-color: rgba(74,222,128,0.3);
+    background: linear-gradient(135deg, var(--surface) 0%, rgba(74,222,128,0.03) 100%);
+  }
+
+  .faq-card.rejected {
+    border-color: rgba(248,113,113,0.3);
+    background: linear-gradient(135deg, var(--surface) 0%, rgba(248,113,113,0.03) 100%);
+    opacity: 0.7;
+  }
+
+  .faq-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 16px;
+    gap: 16px;
+  }
+
+  .faq-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .company-tag {
+    background: linear-gradient(135deg, rgba(124,106,247,0.15), rgba(247,106,180,0.1));
+    border: 1px solid rgba(124,106,247,0.3);
+    border-radius: 8px;
+    padding: 4px 10px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--accent);
+  }
+
+  .cluster-tag {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 4px 10px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .status-tag {
+    border-radius: 8px;
+    padding: 4px 10px;
+    font-size: 12px;
+    font-weight: 500;
+  }
+
+  .status-tag.approved { background: rgba(74,222,128,0.15); color: var(--approved); border: 1px solid rgba(74,222,128,0.3); }
+  .status-tag.rejected { background: rgba(248,113,113,0.15); color: var(--rejected); border: 1px solid rgba(248,113,113,0.3); }
+  .status-tag.pending { background: rgba(250,204,21,0.15); color: var(--pending); border: 1px solid rgba(250,204,21,0.3); }
+
+  .faq-question {
+    font-family: 'Syne', sans-serif;
+    font-size: 17px;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 12px;
+    line-height: 1.4;
+  }
+
+  .faq-answer {
+    font-size: 14px;
+    color: #a0a0b8;
+    line-height: 1.7;
+    margin-bottom: 16px;
+    padding: 14px 16px;
+    background: var(--surface2);
+    border-radius: 10px;
+    border-left: 3px solid var(--accent);
+    font-style: italic;
+  }
+
+  .faq-examples {
+    margin-bottom: 20px;
+  }
+
+  .examples-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+
+  .examples-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .example-chip {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .faq-actions {
+    display: flex;
+    gap: 10px;
+  }
+
+  .btn-approve {
+    background: rgba(74,222,128,0.1);
+    border: 1px solid rgba(74,222,128,0.3);
+    color: var(--approved);
+    padding: 8px 18px;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: 'DM Sans', sans-serif;
+  }
+
+  .btn-approve:hover {
+    background: rgba(74,222,128,0.2);
+    transform: translateY(-1px);
+  }
+
+  .btn-reject {
+    background: rgba(248,113,113,0.1);
+    border: 1px solid rgba(248,113,113,0.3);
+    color: var(--rejected);
+    padding: 8px 18px;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: 'DM Sans', sans-serif;
+  }
+
+  .btn-reject:hover {
+    background: rgba(248,113,113,0.2);
+    transform: translateY(-1px);
+  }
+
+  /* Toast */
+  .toast {
+    position: fixed;
+    bottom: 30px;
+    right: 30px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 14px 20px;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    transform: translateY(80px);
+    opacity: 0;
+    transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    z-index: 100;
+    max-width: 320px;
+  }
+
+  .toast.show {
+    transform: translateY(0);
+    opacity: 1;
+  }
+
+  .toast.success { border-color: rgba(74,222,128,0.4); }
+  .toast.error { border-color: rgba(248,113,113,0.4); }
+  .toast.info { border-color: rgba(124,106,247,0.4); }
+
+  /* Empty state */
+  .empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--muted);
+  }
+
+  .empty-icon {
+    font-size: 48px;
+    margin-bottom: 16px;
+    opacity: 0.5;
+  }
+
+  .empty-state h3 {
+    font-family: 'Syne', sans-serif;
+    font-size: 18px;
+    color: var(--text);
+    margin-bottom: 8px;
+  }
+
+  .empty-state p {
+    font-size: 14px;
+  }
+
+  /* Log */
+  .log-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 20px;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    color: var(--accent3);
+    max-height: 160px;
+    overflow-y: auto;
+    line-height: 1.8;
+  }
+
+  .log-box::-webkit-scrollbar { width: 4px; }
+  .log-box::-webkit-scrollbar-track { background: transparent; }
+  .log-box::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .log-line { opacity: 0; animation: fadeIn 0.3s forwards; }
+  .log-line.dim { color: var(--muted); }
+  .log-line.success { color: var(--approved); }
+  .log-line.error { color: var(--rejected); }
+
+  /* Reviewer input */
+  .reviewer-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 24px;
+  }
+
+  .reviewer-row label {
+    font-size: 13px;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+
+  .input-reviewer {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 8px 14px;
+    font-size: 14px;
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    width: 200px;
+    transition: border-color 0.2s;
+  }
+
+  .input-reviewer:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  /* Progress bar */
+  .progress-bar {
+    height: 3px;
+    background: var(--border);
+    border-radius: 2px;
+    margin-bottom: 40px;
+    overflow: hidden;
+  }
+
+  .progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    border-radius: 2px;
+    width: 0%;
+    transition: width 0.5s ease;
+  }
+
+  @media (max-width: 768px) {
+    .stats-grid { grid-template-columns: repeat(2, 1fr); }
+    .status-bar { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="wrapper">
+
+  <header>
+    <div class="logo-area">
+      <h1>Everwod · FAQ Intelligence</h1>
+      <p>Sistema de sugerencia automática de preguntas frecuentes</p>
+    </div>
+    <div class="status-bar" id="statusBar">
+      <div class="status-pill" id="pill-ingest">
+        <div class="status-dot"></div> Ingest :8001
+      </div>
+      <div class="status-pill" id="pill-suggest">
+        <div class="status-dot"></div> Suggest :8003
+      </div>
+      <div class="status-pill" id="pill-valid">
+        <div class="status-dot"></div> Validation :8004
+      </div>
+    </div>
+  </header>
+
+  <!-- Stats -->
+  <div class="stats-grid">
+    <div class="stat-card">
+      <div class="stat-label">Conversaciones</div>
+      <div class="stat-value" id="statConvs">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Empresas</div>
+      <div class="stat-value" id="statCompanies">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Sugerencias</div>
+      <div class="stat-value" id="statSuggestions">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Aprobadas</div>
+      <div class="stat-value" id="statApproved">0 <span>/ 0</span></div>
+    </div>
+  </div>
+
+  <!-- Progress -->
+  <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+
+  <!-- Actions -->
+  <div class="actions-row">
+    <button class="btn btn-primary" id="btnIngest" onclick="runIngest()">
+      <div class="spinner" id="spIngest"></div>
+      <span>⬇ Importar Conversaciones</span>
+    </button>
+    <button class="btn btn-accent" id="btnSuggest" onclick="runSuggest()">
+      <div class="spinner" id="spSuggest"></div>
+      <span>✦ Generar Sugerencias IA</span>
+    </button>
+    <button class="btn btn-secondary" onclick="loadSuggestions()">
+      <span>↻ Actualizar</span>
+    </button>
+  </div>
+
+  <!-- Reviewer -->
+  <div class="reviewer-row">
+    <label>Revisor:</label>
+    <input class="input-reviewer" id="reviewerName" type="text" value="Mateo Niño" placeholder="Tu nombre" />
+  </div>
+
+  <!-- FAQ List -->
+  <div class="section-title">
+    Sugerencias de FAQ
+    <span class="badge" id="badgeCount">0 sugerencias</span>
+  </div>
+
+  <div class="faq-list" id="faqList">
+    <div class="empty-state">
+      <div class="empty-icon">🤖</div>
+      <h3>Sin sugerencias aún</h3>
+      <p>Importa conversaciones y genera sugerencias con IA</p>
+    </div>
+  </div>
+
+  <!-- Log -->
+  <div class="section-title" style="margin-top:32px">
+    Registro de actividad
+  </div>
+  <div class="log-box" id="logBox">
+    <div class="log-line dim">» Panel iniciado. Verificando servicios...</div>
+  </div>
+
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+  const BASE_INGEST = 'http://127.0.0.1:8001';
+  const BASE_SUGGEST = 'http://127.0.0.1:8003';
+  const BASE_VALID = 'http://127.0.0.1:8004';
+
+  let suggestions = [];
+  let validations = {};
+  let totalImported = 0;
+
+  function log(msg, type = '') {
+    const box = document.getElementById('logBox');
+    const line = document.createElement('div');
+    line.className = `log-line ${type}`;
+    const now = new Date().toLocaleTimeString('es-CO');
+    line.textContent = `[${now}] ${msg}`;
+    box.appendChild(line);
+    box.scrollTop = box.scrollHeight;
+  }
+
+  function toast(msg, type = 'info') {
+    const t = document.getElementById('toast');
+    const icons = { success: '✓', error: '✕', info: '→' };
+    t.innerHTML = `<span>${icons[type]}</span> ${msg}`;
+    t.className = `toast ${type} show`;
+    setTimeout(() => t.className = 'toast', 3000);
+  }
+
+  function setBtn(id, loading) {
+    const btn = document.getElementById(id);
+    const sp = document.getElementById('sp' + id.replace('btn',''));
+    btn.disabled = loading;
+    sp.style.display = loading ? 'block' : 'none';
+  }
+
+  function updateProgress() {
+    const total = suggestions.length;
+    const done = Object.keys(validations).length;
+    const pct = total > 0 ? (done / total) * 100 : 0;
+    document.getElementById('progressFill').style.width = pct + '%';
+    const approved = Object.values(validations).filter(v => v.status === 'approved').length;
+    document.getElementById('statApproved').innerHTML = `${approved} <span>/ ${total}</span>`;
+  }
+
+  async function checkServices() {
+    const checks = [
+      { url: BASE_INGEST + '/health', pill: 'pill-ingest' },
+      { url: BASE_SUGGEST + '/health', pill: 'pill-suggest' },
+      { url: BASE_VALID + '/health', pill: 'pill-valid' },
+    ];
+    for (const c of checks) {
+      try {
+        const r = await fetch(c.url);
+        if (r.ok) {
+          document.getElementById(c.pill).classList.add('active');
+          log(`Servicio ${c.url} → OK`, 'success');
+        }
+      } catch {
+        log(`Servicio ${c.url} → no disponible`, 'error');
+      }
+    }
+  }
+
+  async function runIngest() {
+    setBtn('btnIngest', true);
+    log('Iniciando importación de conversaciones...');
+    try {
+      const r = await fetch(BASE_INGEST + '/ingest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ limit: 1000, since_days: 90 })
+      });
+      const data = await r.json();
+      totalImported = data.imported_records;
+      document.getElementById('statConvs').textContent = totalImported;
+      log(`Importadas ${totalImported} conversaciones correctamente`, 'success');
+      toast(`${totalImported} conversaciones importadas`, 'success');
+    } catch (e) {
+      log('Error al importar: ' + e.message, 'error');
+      toast('Error al importar conversaciones', 'error');
+    }
+    setBtn('btnIngest', false);
+  }
+
+  async function runSuggest() {
+    setBtn('btnSuggest', true);
+    log('Generando sugerencias con IA... (puede tardar unos segundos)');
+    toast('Procesando con IA...', 'info');
+    try {
+      const r = await fetch(BASE_SUGGEST + '/suggest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const data = await r.json();
+      log(`Sugerencias generadas: ${data.cluster_count} clusters, ${data.company_count} empresas`, 'success');
+      toast(`${data.cluster_count} sugerencias generadas`, 'success');
+      await loadSuggestions();
+    } catch (e) {
+      log('Error al generar sugerencias: ' + e.message, 'error');
+      toast('Error al generar sugerencias', 'error');
+    }
+    setBtn('btnSuggest', false);
+  }
+
+  async function loadSuggestions() {
+    try {
+      const [rSug, rVal] = await Promise.all([
+        fetch(BASE_SUGGEST + '/suggestions'),
+        fetch(BASE_VALID + '/validations')
+      ]);
+      const dataSug = await rSug.json();
+      const dataVal = await rVal.json();
+
+      suggestions = dataSug.suggestions || [];
+
+      // Build validations map
+      validations = {};
+      const valList = Array.isArray(dataVal) ? dataVal : (dataVal.value || []);
+      valList.forEach(v => { validations[v.suggestion_id] = v; });
+
+      document.getElementById('statCompanies').textContent = dataSug.company_count || '—';
+      document.getElementById('statSuggestions').textContent = suggestions.length;
+      document.getElementById('badgeCount').textContent = `${suggestions.length} sugerencias`;
+
+      renderFAQs();
+      updateProgress();
+      log(`Panel actualizado: ${suggestions.length} sugerencias cargadas`);
+    } catch (e) {
+      log('Error al cargar sugerencias: ' + e.message, 'error');
+    }
+  }
+
+  function renderFAQs() {
+    const list = document.getElementById('faqList');
+    if (suggestions.length === 0) {
+      list.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon">🤖</div>
+          <h3>Sin sugerencias aún</h3>
+          <p>Importa conversaciones y genera sugerencias con IA</p>
+        </div>`;
+      return;
+    }
+
+    list.innerHTML = '';
+    suggestions.forEach((s, i) => {
+      const val = validations[s.id];
+      const status = val ? val.status : 'pending';
+      const statusLabels = { approved: '✓ Aprobada', rejected: '✗ Rechazada', pending: '· Pendiente', needs_changes: '⚠ Revisar' };
+
+      const card = document.createElement('div');
+      card.className = `faq-card ${status !== 'pending' ? status : ''}`;
+      card.style.animationDelay = (i * 0.08) + 's';
+
+      const examples = (s.support_examples || []).map(e =>
+        `<span class="example-chip">${e.length > 50 ? e.substring(0,50)+'…' : e}</span>`
+      ).join('');
+
+      const actionBtns = status === 'pending' ? `
+        <button class="btn-approve" onclick="validate('${s.id}', 'approved')">✓ Aprobar</button>
+        <button class="btn-reject" onclick="validate('${s.id}', 'rejected')">✗ Rechazar</button>
+      ` : `<span class="status-tag ${status}">${statusLabels[status]}</span>`;
+
+      card.innerHTML = `
+        <div class="faq-header">
+          <div class="faq-meta">
+            <span class="company-tag">${s.company_name || 'Empresa ' + s.company_id}</span>
+            <span class="cluster-tag">${s.cluster_size} ejemplos · ${s.cluster_score?.toFixed(0)}% soporte</span>
+          </div>
+        </div>
+        <div class="faq-question">${s.question}</div>
+        <div class="faq-answer">${s.answer}</div>
+        ${examples ? `
+        <div class="faq-examples">
+          <div class="examples-label">Ejemplos del cluster</div>
+          <div class="examples-list">${examples}</div>
+        </div>` : ''}
+        <div class="faq-actions">${actionBtns}</div>
+      `;
+      list.appendChild(card);
+    });
+  }
+
+  async function validate(suggestionId, status) {
+    const reviewer = document.getElementById('reviewerName').value || 'Revisor';
+    log(`Validando sugerencia ${suggestionId.substring(0,8)}... como "${status}"`);
+    try {
+      const r = await fetch(BASE_VALID + '/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          suggestion_id: suggestionId,
+          reviewer: reviewer,
+          status: status,
+          notes: status === 'approved' ? 'Aprobada desde panel visual' : 'Rechazada desde panel visual'
+        })
+      });
+      if (r.ok) {
+        const data = await r.json();
+        validations[suggestionId] = data;
+        log(`Sugerencia ${status === 'approved' ? 'aprobada' : 'rechazada'} por ${reviewer}`, 'success');
+        toast(status === 'approved' ? 'FAQ aprobada ✓' : 'FAQ rechazada', status === 'approved' ? 'success' : 'error');
+        renderFAQs();
+        updateProgress();
+      }
+    } catch (e) {
+      log('Error al validar: ' + e.message, 'error');
+      toast('Error al guardar validación', 'error');
+    }
+  }
+
+  // Init
+  checkServices();
+  loadSuggestions();
+</script>
+</body>
+</html>

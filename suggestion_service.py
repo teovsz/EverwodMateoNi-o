@@ -15,7 +15,15 @@ from faq_common import DATA_DIR, get_db_connection, load_json, load_json_lines, 
 from faq_models import SuggestionResponse, SuggestionSummary
 
 # Aplicacion FastAPI del servicio de sugerencias.
+from fastapi.middleware.cors import CORSMiddleware
+
 app = FastAPI(title="Everwod FAQ Suggestion Service")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Mismo modelo usado para representar semanticamente las preguntas de usuarios.
 MODEL_NAME = "all-MiniLM-L6-v2"
@@ -69,6 +77,19 @@ def load_conversation_pairs() -> List[Dict[str, str]]:
     return load_json_lines(CONVERSATIONS_PATH)
 
 
+def build_protected_terms(company_name: Optional[str]) -> List[str]:
+    """Construye la lista de terminos protegidos para no borrar el nombre de la empresa."""
+    if not company_name:
+        return []
+    terms = [company_name, company_name.lower()]
+    # Agrega cada palabra del nombre de la empresa como termino protegido tambien.
+    for word in company_name.split():
+        if len(word) > 2:
+            terms.append(word)
+            terms.append(word.lower())
+    return list(set(terms))
+
+
 def redact_personal_data(text: str, protected_terms: Optional[List[str]] = None) -> str:
     """Elimina datos personales frecuentes antes de exponer o usar texto como contexto."""
     text = normalize_text(text)
@@ -81,7 +102,8 @@ def redact_personal_data(text: str, protected_terms: Optional[List[str]] = None)
         if clean_term:
             token = f"__PROTECTED_{index}__"
             protected_values[token] = clean_term
-            text = text.replace(clean_term, token)
+            # Reemplaza con case-insensitive para cubrir variaciones de mayusculas.
+            text = re.sub(re.escape(clean_term), token, text, flags=re.IGNORECASE)
 
     text = re.sub(r"[\w.+-]+@[\w-]+\.[\w.-]+", "[correo]", text)
     text = re.sub(r"\b(?:\+?\d[\s-]?){7,}\b", "[telefono]", text)
@@ -285,7 +307,7 @@ def is_existing_faq(question: str, existing_questions: List[str]) -> bool:
 
 def generate_answer(question: str, examples: List[str], historical_answers: List[str], company_name: Optional[str]) -> str:
     """Redacta una respuesta FAQ con Qwen usando solo evidencia de la misma empresa."""
-    protected_terms = [company_name] if company_name else []
+    protected_terms = build_protected_terms(company_name)
     fallback = most_common_answer(historical_answers, protected_terms=protected_terms)
     if not ANSWER_GENERATOR:
         return fallback
@@ -295,7 +317,7 @@ def generate_answer(question: str, examples: List[str], historical_answers: List
         for answer in historical_answers
         if redact_personal_data(answer, protected_terms=protected_terms)
     ]
-    clean_examples = [redact_personal_data(example) for example in examples if redact_personal_data(example)]
+    clean_examples = [redact_personal_data(example, protected_terms=protected_terms) for example in examples if redact_personal_data(example, protected_terms=protected_terms)]
     answer_context = "\n".join(f"- {answer}" for answer in clean_answers[:4])
     example_context = "\n".join(f"- {example}" for example in clean_examples[:5])
     company_context = company_name or "esta empresa"
@@ -384,9 +406,11 @@ def build_company_suggestions(
         if is_existing_faq(question_text, existing_questions):
             continue
 
+        protected_terms = build_protected_terms(representative.get("company_name"))
+
         examples = []
         for idx in indices[:5]:
-            candidate = redact_personal_data(user_texts[idx])
+            candidate = redact_personal_data(user_texts[idx], protected_terms=protected_terms)
             if candidate not in examples:
                 examples.append(candidate)
 
@@ -505,3 +529,4 @@ if __name__ == "__main__":
 
     # Levanta el servicio localmente en el puerto 8003.
     uvicorn.run("suggestion_service:app", host="127.0.0.1", port=8003, log_level="info")
+
