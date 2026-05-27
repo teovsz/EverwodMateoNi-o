@@ -14,7 +14,6 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
 from faq_common import DATA_DIR, get_db_connection, load_json, load_json_lines, normalize_text, save_json
 from faq_models import SuggestionResponse, SuggestionSummary
 
-# Aplicacion FastAPI del servicio de sugerencias.
 from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(title="Everwod FAQ Suggestion Service")
@@ -25,42 +24,41 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mismo modelo usado para representar semanticamente las preguntas de usuarios.
 MODEL_NAME = "all-MiniLM-L6-v2"
 
-# Modelo local pequeno para redactar respuestas sugeridas. Se puede cambiar en .env.
 FAQ_LLM_MODEL = os.getenv("FAQ_LLM_MODEL", "Qwen/Qwen2.5-0.5B-Instruct")
 FAQ_LLM_ENABLED = os.getenv("FAQ_LLM_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
-FAQ_CLUSTER_EPS = float(os.getenv("FAQ_CLUSTER_EPS", "0.34"))
-FAQ_MIN_CLUSTER_SIZE = int(os.getenv("FAQ_MIN_CLUSTER_SIZE", "3"))
-FAQ_SKIP_EXISTING = os.getenv("FAQ_SKIP_EXISTING", "true").lower() in {"1", "true", "yes", "on"}
-FAQ_DUPLICATE_THRESHOLD = float(os.getenv("FAQ_DUPLICATE_THRESHOLD", "0.78"))
 
-# Se cargan bajo demanda para reutilizarlos durante toda la vida del servicio.
+FAQ_CLUSTER_EPS = float(os.getenv("FAQ_CLUSTER_EPS", "0.45"))
+FAQ_MIN_CLUSTER_SIZE = int(os.getenv("FAQ_MIN_CLUSTER_SIZE", "2"))
+
+FAQ_SKIP_EXISTING = os.getenv("FAQ_SKIP_EXISTING", "true").lower() in {"1", "true", "yes", "on"}
+# FIX: subimos el threshold de 0.45 a 0.82 para que solo descarte preguntas MUY similares
+FAQ_DUPLICATE_THRESHOLD = float(os.getenv("FAQ_DUPLICATE_THRESHOLD", "0.82"))
+
 EMBEDDING_MODEL: Optional[SentenceTransformer] = None
 ANSWER_GENERATOR: Optional[Any] = None
 MODELS_READY = False
 
-# Archivos de entrada y salida del servicio.
 SUGGESTIONS_PATH = DATA_DIR / "faq_suggestions.json"
 CONVERSATIONS_PATH = DATA_DIR / "conversations.jsonl"
 
 
 @app.on_event("startup")
 def startup_event() -> None:
-    """Carga los modelos locales cuando arranca el servicio."""
     load_models()
 
 
 def load_models() -> None:
-    """Carga modelos si aun no estan listos; tambien sirve para ejecuciones por scheduler."""
     global EMBEDDING_MODEL, ANSWER_GENERATOR, MODELS_READY
     if MODELS_READY:
         return
     if EMBEDDING_MODEL is None:
+        print(f"Cargando modelo de embeddings: {MODEL_NAME}...")
         EMBEDDING_MODEL = SentenceTransformer(MODEL_NAME)
-    if FAQ_LLM_ENABLED:
+    if FAQ_LLM_ENABLED and ANSWER_GENERATOR is None:
         try:
+            print(f"Cargando LLM local: {FAQ_LLM_MODEL}...")
             tokenizer = AutoTokenizer.from_pretrained(FAQ_LLM_MODEL)
             model = AutoModelForCausalLM.from_pretrained(FAQ_LLM_MODEL)
             ANSWER_GENERATOR = pipeline("text-generation", model=model, tokenizer=tokenizer)
@@ -71,18 +69,15 @@ def load_models() -> None:
 
 
 def load_conversation_pairs() -> List[Dict[str, str]]:
-    """Lee los pares usuario/asistente generados por el servicio de ingesta."""
     if not CONVERSATIONS_PATH.exists():
         raise FileNotFoundError(f"Conversation file not found: {CONVERSATIONS_PATH}")
     return load_json_lines(CONVERSATIONS_PATH)
 
 
 def build_protected_terms(company_name: Optional[str]) -> List[str]:
-    """Construye la lista de terminos protegidos para no borrar el nombre de la empresa."""
     if not company_name:
         return []
     terms = [company_name, company_name.lower()]
-    # Agrega cada palabra del nombre de la empresa como termino protegido tambien.
     for word in company_name.split():
         if len(word) > 2:
             terms.append(word)
@@ -91,7 +86,6 @@ def build_protected_terms(company_name: Optional[str]) -> List[str]:
 
 
 def redact_personal_data(text: str, protected_terms: Optional[List[str]] = None) -> str:
-    """Elimina datos personales frecuentes antes de exponer o usar texto como contexto."""
     text = normalize_text(text)
     if not text:
         return ""
@@ -102,7 +96,6 @@ def redact_personal_data(text: str, protected_terms: Optional[List[str]] = None)
         if clean_term:
             token = f"__PROTECTED_{index}__"
             protected_values[token] = clean_term
-            # Reemplaza con case-insensitive para cubrir variaciones de mayusculas.
             text = re.sub(re.escape(clean_term), token, text, flags=re.IGNORECASE)
 
     text = re.sub(r"[\w.+-]+@[\w-]+\.[\w.-]+", "[correo]", text)
@@ -138,119 +131,42 @@ def redact_personal_data(text: str, protected_terms: Optional[List[str]] = None)
 
 
 def is_good_faq_candidate(text: str) -> bool:
-    """Descarta mensajes demasiado conversacionales o especificos para ser FAQ."""
+    """Filtro balanceado: descarta saludos triviales pero acepta preguntas reales de negocio."""
     text = normalize_text(text)
+    if not text:
+        return False
+
     lowered = text.lower().strip(" ¿?¡!.,;:")
     word_count = len(text.split())
 
-    if len(text) < 12 or word_count < 3:
+    # Demasiado corto o demasiado largo
+    if word_count < 2 or len(text) > 350:
         return False
-    if len(text) > 280:
+
+    # Descartar saludos y respuestas triviales de 1-3 palabras
+    trivial = {
+        "hola", "buenas", "buenos dias", "buenos días", "buenas tardes",
+        "buenas noches", "si", "sí", "no", "ok", "dale", "gracias",
+        "muchas gracias", "de nada", "hasta luego", "adios", "adiós",
+    }
+    if lowered in trivial:
         return False
+
+    # Descartar mensajes que solo tienen correos o teléfonos
     if re.search(r"[\w.+-]+@[\w-]+\.[\w.-]+", text):
         return False
     if re.search(r"\b\d(?:[\s-]?\d){6,}\b", text):
         return False
 
-    trivial_messages = {
-        "hola",
-        "buenas",
-        "buenos dias",
-        "buenos días",
-        "buenas tardes",
-        "buenas noches",
-        "si",
-        "sí",
-        "no",
-        "ok",
-        "dale",
-        "gracias",
-    }
-    if lowered in trivial_messages:
-        return False
-
-    non_faq_fragments = (
-        "quien soy",
-        "quién soy",
-        "que hora",
-        "qué hora",
-        "que rol",
-        "qué rol",
-        "hora es actualmente",
-        "que usuarios",
-        "qué usuarios",
-        "usuarios agendaron",
-        "usuarios estarán",
-        "usuarios estaran",
-        "personas asistiran",
-        "personas asistirán",
-        "quien asist",
-        "quién asist",
-    )
-    if any(fragment in lowered for fragment in non_faq_fragments):
-        return False
-    if "gracias" in lowered and word_count <= 7 and "?" not in text:
-        return False
-
-    has_question_signal = "?" in text or any(
-        lowered.startswith(prefix)
-        for prefix in (
-            "como ",
-            "cómo ",
-            "cuanto ",
-            "cuánto ",
-            "donde ",
-            "dónde ",
-            "cuando ",
-            "cuándo ",
-            "puedo ",
-            "quiero ",
-            "quisiera ",
-            "necesito ",
-            "tienen ",
-            "me ayudas ",
-            "me puedes ",
-            "me puede ",
-            "me gustaria ",
-            "me gustaría ",
-            "seria posible ",
-            "sería posible ",
-        )
-    )
-    intent_keywords = (
-        "precio",
-        "precios",
-        "plan",
-        "planes",
-        "mensualidad",
-        "horario",
-        "horarios",
-        "ubicacion",
-        "ubicación",
-        "direccion",
-        "dirección",
-        "reservar",
-        "reserva",
-        "agendar",
-        "clase",
-        "pagar",
-        "pago",
-        "qr",
-        "crossfit",
-        "informacion",
-        "información",
-    )
-    has_business_intent = any(keyword in lowered for keyword in intent_keywords)
-    return has_question_signal and has_business_intent
+    # Con 3+ palabras es suficiente para ser candidato
+    return True
 
 
 def company_key(item: Dict[str, str]) -> str:
-    """Devuelve el identificador de empresa preservando compatibilidad con ingestas viejas."""
     return normalize_text(str(item.get("company_id") or item.get("workspace_id") or "unknown"))
 
 
 def most_common_answer(answers: List[str], protected_terms: Optional[List[str]] = None) -> str:
-    """Escoge una respuesta historica como fallback cuando el LLM no esta disponible."""
     clean_answers = [
         redact_personal_data(answer, protected_terms=protected_terms)
         for answer in answers
@@ -262,7 +178,6 @@ def most_common_answer(answers: List[str], protected_terms: Optional[List[str]] 
 
 
 def load_existing_faqs_by_company() -> Dict[str, List[str]]:
-    """Carga FAQs existentes por workspace para evitar sugerencias duplicadas."""
     if not FAQ_SKIP_EXISTING:
         return {}
 
@@ -289,7 +204,6 @@ def load_existing_faqs_by_company() -> Dict[str, List[str]]:
 
 
 def is_existing_faq(question: str, existing_questions: List[str]) -> bool:
-    """Compara semanticamente una pregunta sugerida contra FAQs ya creadas."""
     if not existing_questions:
         return False
 
@@ -306,7 +220,6 @@ def is_existing_faq(question: str, existing_questions: List[str]) -> bool:
 
 
 def generate_answer(question: str, examples: List[str], historical_answers: List[str], company_name: Optional[str]) -> str:
-    """Redacta una respuesta FAQ con Qwen usando solo evidencia de la misma empresa."""
     protected_terms = build_protected_terms(company_name)
     fallback = most_common_answer(historical_answers, protected_terms=protected_terms)
     if not ANSWER_GENERATOR:
@@ -317,7 +230,11 @@ def generate_answer(question: str, examples: List[str], historical_answers: List
         for answer in historical_answers
         if redact_personal_data(answer, protected_terms=protected_terms)
     ]
-    clean_examples = [redact_personal_data(example, protected_terms=protected_terms) for example in examples if redact_personal_data(example, protected_terms=protected_terms)]
+    clean_examples = [
+        redact_personal_data(example, protected_terms=protected_terms)
+        for example in examples
+        if redact_personal_data(example, protected_terms=protected_terms)
+    ]
     answer_context = "\n".join(f"- {answer}" for answer in clean_answers[:4])
     example_context = "\n".join(f"- {example}" for example in clean_examples[:5])
     company_context = company_name or "esta empresa"
@@ -362,7 +279,6 @@ def build_company_suggestions(
     conversations: List[Dict[str, str]],
     existing_questions: Optional[List[str]] = None,
 ) -> tuple[List[SuggestionResponse], Optional[float]]:
-    """Genera sugerencias de FAQ para una sola empresa."""
     load_models()
     existing_questions = existing_questions or []
 
@@ -372,12 +288,11 @@ def build_company_suggestions(
         if user_text and is_good_faq_candidate(user_text):
             valid_items.append({**item, "user_text": user_text})
 
-    if len(valid_items) < FAQ_MIN_CLUSTER_SIZE:
+    if len(valid_items) < 2:
         return [], None
 
     user_texts = [item["user_text"] for item in valid_items]
 
-    # Convierte cada pregunta en un vector numerico comparable.
     embeddings = EMBEDDING_MODEL.encode(
         user_texts,
         convert_to_numpy=True,
@@ -385,17 +300,33 @@ def build_company_suggestions(
         show_progress_bar=False,
     )
 
-    # DBSCAN no fuerza mensajes sueltos a entrar en una FAQ; los marca como ruido.
-    model = DBSCAN(eps=FAQ_CLUSTER_EPS, min_samples=FAQ_MIN_CLUSTER_SIZE, metric="cosine")
+    # FIX: eps y min_samples dinámicos según el volumen de la empresa
+    effective_eps = FAQ_CLUSTER_EPS if len(valid_items) >= 30 else min(FAQ_CLUSTER_EPS + 0.10, 0.58)
+    effective_min = max(2, min(FAQ_MIN_CLUSTER_SIZE, len(valid_items) // 4))
+
+    model = DBSCAN(eps=effective_eps, min_samples=effective_min, metric="cosine")
     labels = model.fit_predict(embeddings)
 
     suggestions: List[SuggestionResponse] = []
     cluster_groups: Dict[int, List[int]] = {}
+
     for index, label in enumerate(labels):
         if label != -1:
             cluster_groups.setdefault(int(label), []).append(index)
 
-    # Para cada cluster, escoge la pregunta mas cercana al centro como representante.
+    # FIX: si DBSCAN no formó ningún cluster (todos son ruido), agrupamos por similitud manual
+    if not cluster_groups:
+        print(f"   [WARN] DBSCAN no formó clusters. Aplicando agrupamiento de emergencia con eps=0.60")
+        model2 = DBSCAN(eps=0.60, min_samples=2, metric="cosine")
+        labels2 = model2.fit_predict(embeddings)
+        for index, label in enumerate(labels2):
+            if label != -1:
+                cluster_groups.setdefault(int(label), []).append(index)
+
+    if not cluster_groups:
+        print(f"   [WARN] Sin clusters tras agrupamiento de emergencia.")
+        return [], None
+
     for label, indices in cluster_groups.items():
         center = np.mean(embeddings[indices], axis=0)
         center = center / np.linalg.norm(center)
@@ -427,7 +358,10 @@ def build_company_suggestions(
         )
 
         support = round(float(np.mean([np.dot(embeddings[idx], center) for idx in indices])), 4)
-        if support < 0.68:
+
+        # FIX: umbral de soporte más bajo para empresas con menos volumen
+        min_support = 0.65 if len(valid_items) >= 30 else 0.50
+        if support < min_support:
             continue
 
         cluster_score = round(min(100.0, 100.0 * len(indices) / len(valid_items)), 2)
@@ -448,13 +382,15 @@ def build_company_suggestions(
     clean_labels = [label for label in labels if label != -1]
     clean_embeddings = embeddings[labels != -1]
     if len(set(clean_labels)) > 1 and len(clean_embeddings) > len(set(clean_labels)):
-        silhouette = round(silhouette_score(clean_embeddings, clean_labels, metric="cosine"), 4)
+        try:
+            silhouette = round(silhouette_score(clean_embeddings, clean_labels, metric="cosine"), 4)
+        except Exception:
+            silhouette = None
 
     return suggestions, silhouette
 
 
 def build_suggestions(conversations: List[Dict[str, str]]) -> SuggestionSummary:
-    """Genera sugerencias de FAQ agrupando preguntas por empresa y similitud semantica."""
     if not conversations:
         raise ValueError("No conversation pairs available for suggestion generation.")
 
@@ -462,33 +398,45 @@ def build_suggestions(conversations: List[Dict[str, str]]) -> SuggestionSummary:
     for item in conversations:
         conversations_by_company[company_key(item)].append(item)
 
+    print("\n" + "="*50)
+    print("INICIANDO GENERACION DE SUGERENCIAS")
+
     suggestions: List[SuggestionResponse] = []
     silhouettes = []
     total_examples = 0
     existing_faqs_by_company = load_existing_faqs_by_company()
 
-    for items in conversations_by_company.values():
-        current_company = company_key(items[0]) if items else "unknown"
-        total_examples += sum(1 for item in items if is_good_faq_candidate(item.get("user_text", "")))
+    for current_company, items in conversations_by_company.items():
+        valid_count = sum(1 for item in items if is_good_faq_candidate(item.get("user_text", "")))
+        print(f"Empresa [{current_company}]: {len(items)} mensajes -> {valid_count} validos")
+
+        total_examples += valid_count
         company_suggestions, company_silhouette = build_company_suggestions(
             items,
             existing_questions=existing_faqs_by_company.get(current_company, []),
         )
+
+        print(f"   -> {len(company_suggestions)} sugerencias generadas")
         suggestions.extend(company_suggestions)
         if company_silhouette is not None:
             silhouettes.append(company_silhouette)
 
+    print("="*50 + "\n")
+
     if not suggestions:
-        raise ValueError("Insufficient user messages to generate FAQ suggestions.")
+        raise HTTPException(
+            status_code=400,
+            detail="Ninguna conversación cumple el formato mínimo para armar FAQs."
+        )
 
     silhouette = round(sum(silhouettes) / len(silhouettes), 4) if silhouettes else None
+    avg_size = round(total_examples / len(suggestions), 2) if suggestions else 0
 
-    # Persiste el resumen para que otros endpoints o servicios puedan consultarlo.
     summary = SuggestionSummary(
         company_count=len(conversations_by_company),
         cluster_count=len(suggestions),
         total_examples=total_examples,
-        average_cluster_size=round(total_examples / len(suggestions), 2),
+        average_cluster_size=avg_size,
         silhouette_score=silhouette,
         suggestions=suggestions,
     )
@@ -498,7 +446,6 @@ def build_suggestions(conversations: List[Dict[str, str]]) -> SuggestionSummary:
 
 @app.get("/health")
 def health() -> dict:
-    """Endpoint simple para confirmar que el servicio esta activo."""
     load_models()
     return {
         "status": "ok",
@@ -510,23 +457,34 @@ def health() -> dict:
 
 @app.post("/suggest", response_model=SuggestionSummary)
 def suggest() -> SuggestionSummary:
-    """Endpoint principal: genera y guarda sugerencias nuevas."""
     conversations = load_conversation_pairs()
     return build_suggestions(conversations)
 
 
-@app.get("/suggestions", response_model=SuggestionSummary)
-def get_suggestions() -> SuggestionSummary:
-    """Devuelve la ultima tanda de sugerencias generadas."""
+@app.get("/suggestions")
+def get_suggestions() -> dict:
     if not SUGGESTIONS_PATH.exists():
         raise HTTPException(status_code=404, detail="No suggestions have been generated yet.")
+
     raw = load_json(SUGGESTIONS_PATH)
-    return SuggestionSummary(**raw)
+
+    all_companies = {}
+    try:
+        conversations = load_conversation_pairs()
+        for item in conversations:
+            c_id = company_key(item)
+            c_name = item.get("company_name") or f"Empresa {c_id}"
+            if c_id and c_id != "unknown":
+                all_companies[c_id] = c_name
+    except Exception:
+        pass
+
+    companies_list = [{"company_id": k, "company_name": v} for k, v in all_companies.items()]
+    raw["all_companies_in_db"] = companies_list
+
+    return raw
 
 
 if __name__ == "__main__":
     import uvicorn
-
-    # Levanta el servicio localmente en el puerto 8003.
     uvicorn.run("suggestion_service:app", host="127.0.0.1", port=8003, log_level="info")
-
